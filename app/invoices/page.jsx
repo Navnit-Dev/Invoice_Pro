@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import JsBarcode from 'jsbarcode';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import {
   Box, Typography, Button, TextField, Table, TableBody, TableCell,
@@ -17,13 +17,32 @@ import {
 import MainLayout from '@/components/Layout/MainLayout';
 import toast from 'react-hot-toast';
 
+// Helper Component to render the Barcode using JsBarcode
+const InvoiceBarcode = ({ value }) => {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    if (canvasRef.current && value) {
+      JsBarcode(canvasRef.current, value, {
+        format: "CODE128",
+        width: 1,
+        height: 30,
+        displayValue: false,
+        margin: 0,
+        background: "transparent"
+      });
+    }
+  }, [value]);
+
+  return <canvas ref={canvasRef} style={{ maxWidth: '100px' }} />;
+};
+
 export default function InvoiceHistoryPage() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const searchInputRef = useRef(null);
   const scannerRef = useRef(null);
 
-  // States
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showScanner, setShowScanner] = useState(false);
@@ -31,7 +50,6 @@ export default function InvoiceHistoryPage() {
   const [pagination, setPagination] = useState({ page: 1, limit: 10, total: 0, pages: 0 });
   const [filters, setFilters] = useState({ search: '' });
 
-  // 1. Fetch Invoices Logic
   const fetchInvoices = useCallback(async () => {
     setLoading(true);
     try {
@@ -46,7 +64,7 @@ export default function InvoiceHistoryPage() {
       setInvoices(data.invoices || []);
       setPagination(data.pagination);
     } catch (error) {
-      toast.error('Failed to sync invoices');
+      toast.error('Sync failed');
     } finally {
       setLoading(false);
     }
@@ -57,7 +75,7 @@ export default function InvoiceHistoryPage() {
     return () => clearTimeout(handler);
   }, [fetchInvoices]);
 
-  // 2. Integrated Scanner Logic
+  // QR/Barcode Scanner Logic
   useEffect(() => {
     if (showScanner) {
       const scanner = new Html5QrcodeScanner("reader", { 
@@ -67,48 +85,41 @@ export default function InvoiceHistoryPage() {
       });
 
       scanner.render((text) => {
-        // Update search filter directly
         setFilters({ search: text.trim() });
         setShowScanner(false);
-        toast.success(`Detected: ${text}`);
+        toast.success(`Scanned: ${text}`);
         scanner.clear();
-        // Force focus on input to ensure UI registers the change
         if (searchInputRef.current) searchInputRef.current.focus();
       }, () => {});
 
       scannerRef.current = scanner;
     }
-
-    return () => {
-      if (scannerRef.current) {
-        scannerRef.current.clear().catch(() => {});
-      }
-    };
+    return () => { if (scannerRef.current) scannerRef.current.clear().catch(() => {}); };
   }, [showScanner]);
 
   const handleDelete = async (id) => {
     try {
       const res = await fetch(`/api/invoices/${id}`, { method: 'DELETE' });
       if (res.ok) {
-        toast.success('Invoice deleted');
+        toast.success('Deleted');
         setDeleteConfirm(null);
         fetchInvoices();
       }
-    } catch (err) { toast.error('Delete failed'); }
+    } catch (err) { toast.error('Error'); }
   };
 
   return (
     <MainLayout>
-      <Box sx={{ p: { xs: 2, md: 4 }, maxWidth: 1200, mx: 'auto' }}>
+      <Box sx={{ p: { xs: 2, md: 4 }, maxWidth: 1400, mx: 'auto' }}>
         
-        {/* Header Section */}
+        {/* Header */}
         <Stack direction="row" justifyContent="space-between" alignItems="center" mb={4}>
           <Box>
-            <Typography variant={isMobile ? "h5" : "h4"} fontWeight="900" color="primary.main">
-              Invoices
+            <Typography variant={isMobile ? "h5" : "h4"} fontWeight="900" sx={{ letterSpacing: '-0.5px' }}>
+              Invoice History
             </Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
-              {pagination.total} TOTAL RECORDS
+            <Typography variant="caption" color="primary" sx={{ fontWeight: 800, letterSpacing: 1 }}>
+              {pagination.total} ACTIVE INVOICES
             </Typography>
           </Box>
           <Button 
@@ -116,21 +127,21 @@ export default function InvoiceHistoryPage() {
             startIcon={<Add />} 
             component={Link} 
             href="/invoices/create" 
-            sx={{ borderRadius: 2.5, textTransform: 'none', px: 3, fontWeight: 700 }}
+            sx={{ borderRadius: 2, px: 3, fontWeight: 700, boxShadow: theme.shadows[4] }}
           >
-            {!isMobile && "Create Invoice"}
+            {!isMobile && "Create New"}
           </Button>
         </Stack>
 
-        {/* Professional Search Pill */}
+        {/* Search Bar */}
         <Paper sx={{ 
-          p: 0.5, mb: 4, borderRadius: 4, display: 'flex', alignItems: 'center', 
-          border: '1px solid #e0e0e0', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' 
+          p: 0.5, mb: 4, borderRadius: 3, display: 'flex', alignItems: 'center', 
+          border: '1px solid #ddd', boxShadow: '0 2px 10px rgba(0,0,0,0.05)' 
         }}>
           <TextField
             fullWidth
             inputRef={searchInputRef}
-            placeholder="Search by invoice # or customer..."
+            placeholder="Search invoice number, client, or scan barcode..."
             value={filters.search}
             onChange={(e) => setFilters({ search: e.target.value })}
             variant="standard"
@@ -151,13 +162,12 @@ export default function InvoiceHistoryPage() {
           </IconButton>
         </Paper>
 
-        {/* Invoice List Area */}
         {loading && invoices.length === 0 ? (
-          <Box textAlign="center" py={10}><CircularProgress size={30} /></Box>
+          <Box textAlign="center" py={10}><CircularProgress size={40} /></Box>
         ) : (
           <Box>
             {isMobile ? (
-              /* MOBILE-FIRST VIEW: Compact & Clean */
+              /* MOBILE VIEW: Minimalist List */
               <Stack spacing={1.5}>
                 {invoices.map(inv => (
                   <Box 
@@ -165,54 +175,49 @@ export default function InvoiceHistoryPage() {
                     component={Link} 
                     href={`/invoices/${inv._id}`} 
                     sx={{ 
-                      p: 2, bgcolor: 'white', borderRadius: 3, border: '1px solid #efefef', 
-                      textDecoration: 'none', display: 'flex', justifyContent: 'space-between', 
-                      alignItems: 'center', transition: '0.2s', '&:active': { bgcolor: '#f5f5f5' }
+                      p: 2, bgcolor: 'white', borderRadius: 3, border: '1px solid #eee', 
+                      textDecoration: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center'
                     }}
                   >
                     <Box>
-                      <Typography variant="subtitle2" fontWeight="800" color="primary.main">
-                        #{inv.invoiceNumber}
-                      </Typography>
-                      <Typography variant="body2" fontWeight="500" color="text.secondary">
-                        {inv.customer?.name}
-                      </Typography>
+                      <Typography variant="subtitle2" fontWeight="900" color="black">#{inv.invoiceNumber}</Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{inv.customer?.name}</Typography>
+                      <Box sx={{ mt: 1, opacity: 0.7 }}><InvoiceBarcode value={inv.invoiceNumber} /></Box>
                     </Box>
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      <Chip 
-                        label={inv.paymentStatus} 
-                        size="small" 
-                        color={inv.paymentStatus === 'Paid' ? 'success' : 'warning'} 
-                        sx={{ fontWeight: 800, fontSize: '0.65rem', borderRadius: 1.5 }}
-                      />
-                      <ChevronRight fontSize="small" sx={{ color: 'text.disabled' }} />
-                    </Stack>
+                    <Chip 
+                      label={inv.paymentStatus} 
+                      size="small" 
+                      color={inv.paymentStatus === 'Paid' ? 'success' : 'warning'} 
+                      sx={{ fontWeight: 800, borderRadius: 1 }}
+                    />
                   </Box>
                 ))}
               </Stack>
             ) : (
-              /* DESKTOP VIEW */
-              <TableContainer component={Paper} sx={{ borderRadius: 4, border: '1px solid #eee', boxShadow: 'none' }}>
+              /* DESKTOP VIEW: Professional Table */
+              <TableContainer component={Paper} sx={{ borderRadius: 3, border: '1px solid #eee', boxShadow: 'none' }}>
                 <Table>
-                  <TableHead sx={{ bgcolor: '#fafafa' }}>
+                  <TableHead sx={{ bgcolor: '#f8f9fa' }}>
                     <TableRow>
-                      <TableCell sx={{ fontWeight: 700 }}>Invoice Number</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Customer Name</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Payment Status</TableCell>
-                      <TableCell align="right" sx={{ fontWeight: 700 }}>Actions</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Invoice #</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Client</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Barcode</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700 }}>Action</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
                     {invoices.map(inv => (
                       <TableRow key={inv._id} hover>
-                        <TableCell sx={{ fontWeight: 800, color: 'primary.main' }}>{inv.invoiceNumber}</TableCell>
+                        <TableCell sx={{ fontWeight: 800 }}>{inv.invoiceNumber}</TableCell>
                         <TableCell sx={{ fontWeight: 500 }}>{inv.customer?.name}</TableCell>
+                        <TableCell><InvoiceBarcode value={inv.invoiceNumber} /></TableCell>
                         <TableCell>
                           <Chip label={inv.paymentStatus} size="small" color={inv.paymentStatus === 'Paid' ? 'success' : 'warning'} sx={{ fontWeight: 700 }} />
                         </TableCell>
                         <TableCell align="right">
-                          <IconButton component={Link} href={`/invoices/${inv._id}`} size="small" sx={{ mr: 1 }}><Visibility fontSize="small"/></IconButton>
-                          <IconButton color="error" onClick={() => setDeleteConfirm(inv)} size="small"><Delete fontSize="small"/></IconButton>
+                          <IconButton component={Link} href={`/invoices/${inv._id}`} color="primary"><Visibility fontSize="small"/></IconButton>
+                          <IconButton color="error" onClick={() => setDeleteConfirm(inv)}><Delete fontSize="small"/></IconButton>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -221,68 +226,37 @@ export default function InvoiceHistoryPage() {
               </TableContainer>
             )}
 
-            {invoices.length === 0 && !loading && (
-              <Box textAlign="center" py={8}>
-                <ReceiptLong sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
-                <Typography color="text.secondary" fontWeight={500}>No invoices found</Typography>
-              </Box>
-            )}
-
             <Box display="flex" justifyContent="center" mt={5}>
-              <Pagination 
-                count={pagination.pages} 
-                page={pagination.page} 
-                onChange={(e, p) => setPagination(prev => ({ ...prev, page: p }))} 
-                color="primary"
-                shape="rounded"
-              />
+              <Pagination count={pagination.pages} page={pagination.page} onChange={(e, p) => setPagination(prev => ({ ...prev, page: p }))} color="primary" />
             </Box>
           </Box>
         )}
 
-        {/* Mobile Scanning FAB */}
+        {/* Mobile Scan Button */}
         {isMobile && (
-          <Fab 
-            color="primary" 
-            sx={{ position: 'fixed', bottom: 24, right: 24, boxShadow: 3 }} 
-            onClick={() => setShowScanner(true)}
-          >
+          <Fab color="primary" sx={{ position: 'fixed', bottom: 30, right: 30 }} onClick={() => setShowScanner(true)}>
             <QrCodeScanner />
           </Fab>
         )}
 
-        {/* Integrated Scanner Modal */}
-        <Dialog open={showScanner} onClose={() => setShowScanner(false)} fullWidth maxWidth="xs" PaperProps={{ sx: { borderRadius: 4 } }}>
-          <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 800 }}>
-            Scan Barcode
+        {/* Scanner Dialog */}
+        <Dialog open={showScanner} onClose={() => setShowScanner(false)} fullWidth maxWidth="xs">
+          <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 900 }}>
+            Scanner
             <IconButton onClick={() => setShowScanner(false)}><Close /></IconButton>
           </DialogTitle>
           <Box sx={{ p: 2 }}>
-            <Box id="reader" sx={{ borderRadius: 3, overflow: 'hidden', border: '2px solid #eee' }} />
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2, textAlign: 'center', fontWeight: 500 }}>
-              Center the barcode within the frame to scan
-            </Typography>
+            <Box id="reader" sx={{ borderRadius: 2, overflow: 'hidden' }} />
           </Box>
         </Dialog>
 
-        {/* Delete Dialog */}
-        <Dialog open={!!deleteConfirm} onClose={() => setDeleteConfirm(null)} PaperProps={{ sx: { borderRadius: 3 } }}>
-          <DialogTitle sx={{ fontWeight: 800 }}>Delete Invoice?</DialogTitle>
-          <Box sx={{ px: 3, pb: 2 }}>
-            <Typography variant="body2" color="text.secondary">
-              Are you sure you want to delete <strong>#{deleteConfirm?.invoiceNumber}</strong>? This action cannot be undone.
-            </Typography>
-          </Box>
-          <DialogActions sx={{ p: 2, pt: 0 }}>
-            <Button onClick={() => setDeleteConfirm(null)} sx={{ fontWeight: 700, color: 'text.secondary' }}>Cancel</Button>
-            <Button 
-              variant="contained" 
-              color="error" 
-              onClick={() => handleDelete(deleteConfirm._id)}
-              sx={{ borderRadius: 2, fontWeight: 700 }}
-            >
-              Confirm Delete
-            </Button>
+        {/* Delete Confirmation */}
+        <Dialog open={!!deleteConfirm} onClose={() => setDeleteConfirm(null)}>
+          <DialogTitle fontWeight={800}>Confirm Delete</DialogTitle>
+          <DialogContent>Remove invoice <b>{deleteConfirm?.invoiceNumber}</b>?</DialogContent>
+          <DialogActions sx={{ p: 2 }}>
+            <Button onClick={() => setDeleteConfirm(null)}>Cancel</Button>
+            <Button variant="contained" color="error" onClick={() => handleDelete(deleteConfirm._id)}>Delete</Button>
           </DialogActions>
         </Dialog>
 
