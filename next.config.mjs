@@ -1,6 +1,25 @@
+import withPWA from 'next-pwa';
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  /* config options here */
+  experimental: {
+    esmExternals: 'loose',
+  },
+  images: {
+    domains: ['localhost'],
+  },
+  env: {
+    MONGODB_URI: process.env.MONGODB_URI,
+    NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET,
+    NEXTAUTH_URL: process.env.NEXTAUTH_URL,
+  },
 };
 
-export default nextConfig;
+const pwaConfig = {
+  dest: 'public',
+  register: true,
+  skipWaiting: true,
+  disable: process.env.NODE_ENV === 'development',
+};
+
+export default withPWA(pwaConfig)(nextConfig);
