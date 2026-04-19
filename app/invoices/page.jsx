@@ -35,7 +35,8 @@ import {
   List,
   ListItemButton,
   ListItemText,
-  CircularProgress,
+  Paper,
+  Fade,
 } from '@mui/material';
 import {
   Add,
@@ -45,8 +46,10 @@ import {
   QrCodeScanner,
   FilterList,
   Download,
+  RestartAlt,
+  ReceiptLong,
 } from '@mui/icons-material';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import MainLayout from '@/components/Layout/MainLayout';
 import BarcodeScanner from '@/components/BarcodeScanner';
 import toast from 'react-hot-toast';
@@ -65,7 +68,6 @@ export default function InvoiceHistoryPage() {
     pages: 0,
   });
   const [loading, setLoading] = useState(true);
-  const [scanning, setScanning] = useState(false); // New state for scanner feedback
   const [filters, setFilters] = useState({
     search: searchParams.get('search') || '',
     status: searchParams.get('status') || '',
@@ -76,7 +78,6 @@ export default function InvoiceHistoryPage() {
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [showScanner, setShowScanner] = useState(false);
 
-  // Memoized fetch to prevent unnecessary re-renders
   const fetchInvoices = useCallback(async () => {
     try {
       setLoading(true);
@@ -99,74 +100,35 @@ export default function InvoiceHistoryPage() {
   }, [pagination.page, filters, pagination.limit]);
 
   useEffect(() => {
-    fetchInvoices();
+    const delayDebounceFn = setTimeout(() => {
+      fetchInvoices();
+    }, 400); // Debounce search to prevent excessive API calls
+
+    return () => clearTimeout(delayDebounceFn);
   }, [fetchInvoices]);
 
   const handleDelete = async (id) => {
     try {
-      const response = await fetch(`/api/invoices/${id}`, {
-        method: 'DELETE',
-      });
-      if (!response.ok) throw new Error('Failed to delete invoice');
-      toast.success('Invoice deleted successfully');
+      const response = await fetch(`/api/invoices/${id}`, { method: 'DELETE' });
+      if (!response.ok) throw new Error();
+      toast.success('Invoice removed');
       setDeleteConfirm(null);
       fetchInvoices();
     } catch (error) {
-      toast.error('Failed to delete invoice');
+      toast.error('Error deleting invoice');
     }
   };
 
-  const handleExport = async (format) => {
-    try {
-      let url = `/api/export/${format}?`;
-      if (filters.status) url += `status=${filters.status}&`;
-      if (filters.startDate) url += `startDate=${filters.startDate}&`;
-      if (filters.endDate) url += `endDate=${filters.endDate}`;
-
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`Failed to export ${format}`);
-
-      const blob = await response.blob();
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = `invoices-${Date.now()}.${format}`;
-      document.body.appendChild(link);
-      link.click();
-      
-      // Cleanup
-      link.remove();
-      window.URL.revokeObjectURL(downloadUrl);
-      
-      toast.success(`Exported as ${format.toUpperCase()}`);
-    } catch (error) {
-      toast.error(`Failed to export ${format}`);
-    }
+  const resetFilters = () => {
+    setFilters({ search: '', status: '', startDate: '', endDate: '' });
   };
 
-  // FIXED: Improved Scan Handler
-  const handleBarcodeScan = async (barcode) => {
-    if (!barcode || scanning) return;
-    
-    setScanning(true);
-    const loadingToast = toast.loading('Searching for invoice...');
-    
-    try {
-      const response = await fetch(`/api/invoices/scan?barcode=${encodeURIComponent(barcode)}`);
-      
-      if (!response.ok) {
-        throw new Error('Invoice not found');
-      }
-      
-      const invoice = await response.json();
-      toast.success('Invoice Found!', { id: loadingToast });
-      setShowScanner(false);
-      router.push(`/invoices/${invoice._id}`);
-    } catch (error) {
-      toast.error(error.message || 'Invalid barcode', { id: loadingToast });
-    } finally {
-      setScanning(false);
-    }
+  // FIXED SCANNER: Puts value in search box and triggers fetch
+  const handleBarcodeScan = (barcode) => {
+    if (!barcode) return;
+    setFilters((prev) => ({ ...prev, search: barcode }));
+    setShowScanner(false);
+    toast.success(`Scanned: ${barcode}`);
   };
 
   const formatCurrency = (amount) => {
@@ -177,177 +139,189 @@ export default function InvoiceHistoryPage() {
     }).format(amount);
   };
 
-  const formatDate = (date) => {
-    return new Date(date).toLocaleDateString('en-IN', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-    });
-  };
-
   return (
     <MainLayout>
-      <Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3, flexWrap: 'wrap', gap: 2 }}>
+      <Box sx={{ pb: 5 }}>
+        {/* Header Section */}
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 4, flexWrap: 'wrap', gap: 2 }}>
           <Box>
-            <Typography variant="h4" fontWeight="bold" gutterBottom>
-              Invoice History
+            <Typography variant="h4" fontWeight="800" sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <ReceiptLong color="primary" fontSize="large" /> Invoice History
             </Typography>
             <Typography variant="body1" color="text.secondary">
-              View and manage all your invoices
+              Manage and track your business transactions
             </Typography>
           </Box>
-          <Box sx={{ display: 'flex', gap: 1 }}>
+          <Box sx={{ display: 'flex', gap: 2 }}>
             <Button
               variant="outlined"
-              startIcon={scanning ? <CircularProgress size={20} /> : <QrCodeScanner />}
+              color="primary"
+              startIcon={<QrCodeScanner />}
               onClick={() => setShowScanner(true)}
-              disabled={scanning}
+              sx={{ borderRadius: 2, borderWidth: 2, '&:hover': { borderWidth: 2 } }}
             >
-              Scan Barcode
+              Scan
             </Button>
             <Button
               variant="contained"
               startIcon={<Add />}
               component={Link}
               href="/invoices/create"
+              sx={{ borderRadius: 2, boxShadow: theme.shadows[4] }}
             >
-              Create Invoice
+              New Invoice
             </Button>
           </Box>
         </Box>
 
-        {/* Search and Filters */}
-        <Card sx={{ mb: 3 }}>
-          <CardContent>
+        {/* Search & Filter Bar */}
+        <Card sx={{ mb: 3, borderRadius: 3, boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
+          <CardContent sx={{ p: 3 }}>
             <Grid container spacing={2} alignItems="center">
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} md={6}>
                 <TextField
                   fullWidth
-                  placeholder="Search by invoice number or customer..."
+                  placeholder="Search invoice number, customer name..."
                   value={filters.search}
                   onChange={(e) => setFilters({ ...filters, search: e.target.value })}
                   InputProps={{
                     startAdornment: (
                       <InputAdornment position="start">
-                        <Search color="action" />
+                        <Search color="primary" />
                       </InputAdornment>
                     ),
+                    sx: { borderRadius: 2.5, bgcolor: 'grey.50' }
                   }}
                 />
               </Grid>
-              <Grid item xs={12} md={8}>
-                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              <Grid item xs={12} md={6}>
+                <Box sx={{ display: 'flex', gap: 1, justifyContent: { md: 'flex-end' } }}>
                   <Button
-                    variant={showFilters ? 'contained' : 'outlined'}
+                    variant={showFilters ? 'contained' : 'text'}
                     startIcon={<FilterList />}
                     onClick={() => setShowFilters(!showFilters)}
                   >
                     Filters
                   </Button>
-                  <Button variant="outlined" startIcon={<Download />} onClick={() => handleExport('csv')}>
-                    CSV
-                  </Button>
-                  <Button variant="outlined" startIcon={<Download />} onClick={() => handleExport('excel')}>
-                    Excel
+                  <Button variant="text" color="error" startIcon={<RestartAlt />} onClick={resetFilters}>
+                    Reset
                   </Button>
                 </Box>
               </Grid>
             </Grid>
 
-            {showFilters && (
-              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}>
-                <Box sx={{ mt: 2, pt: 2, borderTop: `1px solid ${theme.palette.divider}` }}>
-                  <Grid container spacing={2}>
-                    <Grid item xs={12} sm={4}>
-                      <FormControl fullWidth size="small">
-                        <InputLabel>Status</InputLabel>
-                        <Select
-                          value={filters.status}
-                          label="Status"
-                          onChange={(e) => setFilters({ ...filters, status: e.target.value })}
-                        >
-                          <MenuItem value="">All</MenuItem>
-                          <MenuItem value="Paid">Paid</MenuItem>
-                          <MenuItem value="Pending">Pending</MenuItem>
-                          <MenuItem value="Partial">Partial</MenuItem>
-                        </Select>
-                      </FormControl>
+            <AnimatePresence>
+              {showFilters && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                >
+                  <Box sx={{ mt: 3, pt: 3, borderTop: `1px solid ${theme.palette.divider}` }}>
+                    <Grid container spacing={2}>
+                      <Grid item xs={12} sm={4}>
+                        <FormControl fullWidth size="small">
+                          <InputLabel>Status</InputLabel>
+                          <Select
+                            value={filters.status}
+                            label="Status"
+                            onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+                            sx={{ borderRadius: 2 }}
+                          >
+                            <MenuItem value="">All Statuses</MenuItem>
+                            <MenuItem value="Paid">Paid</MenuItem>
+                            <MenuItem value="Pending">Pending</MenuItem>
+                            <MenuItem value="Partial">Partial</MenuItem>
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                      <Grid item xs={12} sm={4}>
+                        <TextField
+                          fullWidth size="small" type="date" label="From Date"
+                          value={filters.startDate}
+                          onChange={(e) => setFilters({ ...filters, startDate: e.target.value })}
+                          InputLabelProps={{ shrink: true }}
+                        />
+                      </Grid>
+                      <Grid item xs={12} sm={4}>
+                        <TextField
+                          fullWidth size="small" type="date" label="To Date"
+                          value={filters.endDate}
+                          onChange={(e) => setFilters({ ...filters, endDate: e.target.value })}
+                          InputLabelProps={{ shrink: true }}
+                        />
+                      </Grid>
                     </Grid>
-                    <Grid item xs={12} sm={4}>
-                      <TextField
-                        fullWidth size="small" type="date" label="From"
-                        value={filters.startDate}
-                        onChange={(e) => setFilters({ ...filters, startDate: e.target.value })}
-                        InputLabelProps={{ shrink: true }}
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={4}>
-                      <TextField
-                        fullWidth size="small" type="date" label="To"
-                        value={filters.endDate}
-                        onChange={(e) => setFilters({ ...filters, endDate: e.target.value })}
-                        InputLabelProps={{ shrink: true }}
-                      />
-                    </Grid>
-                  </Grid>
-                </Box>
-              </motion.div>
-            )}
+                  </Box>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </CardContent>
         </Card>
 
-        {/* Desktop and Mobile Views */}
-        <Card>
+        {/* Data Table */}
+        <Paper sx={{ borderRadius: 3, overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
           {isMobile ? (
-            <List>
-              {loading ? <Box p={3} textAlign="center">Loading...</Box> : 
-               invoices.map((inv, idx) => (
-                <ListItemButton key={inv._id} component={Link} href={`/invoices/${inv._id}`} divider>
+            <List disablePadding>
+              {loading ? <Box p={4} textAlign="center">Loading...</Box> : 
+               invoices.map((inv) => (
+                <ListItemButton key={inv._id} component={Link} href={`/invoices/${inv._id}`} sx={{ borderBottom: '1px solid #eee' }}>
                   <ListItemText 
-                    primary={`${inv.invoiceNumber} - ${inv.customer.name}`} 
-                    secondary={`${formatCurrency(inv.total)} | ${inv.paymentStatus}`} 
+                    primary={<Typography fontWeight="bold">{inv.invoiceNumber}</Typography>} 
+                    secondary={`${inv.customer.name} • ${formatCurrency(inv.total)}`} 
                   />
+                  <Chip label={inv.paymentStatus} size="small" color={inv.paymentStatus === 'Paid' ? 'success' : 'warning'} />
                 </ListItemButton>
               ))}
             </List>
           ) : (
             <TableContainer>
               <Table>
-                <TableHead>
+                <TableHead sx={{ bgcolor: 'grey.50' }}>
                   <TableRow>
-                    <TableCell>Invoice #</TableCell>
-                    <TableCell>Customer</TableCell>
-                    <TableCell align="right">Amount</TableCell>
-                    <TableCell align="center">Status</TableCell>
-                    <TableCell align="center">Date</TableCell>
-                    <TableCell align="center">Actions</TableCell>
+                    <TableCell sx={{ fontWeight: 'bold' }}>Invoice #</TableCell>
+                    <TableCell sx={{ fontWeight: 'bold' }}>Customer</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 'bold' }}>Amount</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 'bold' }}>Status</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 'bold' }}>Actions</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {loading ? (
-                    <TableRow><TableCell colSpan={6} align="center">Loading...</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={5} align="center" sx={{ py: 10 }}>Loading...</TableCell></TableRow>
+                  ) : invoices.length === 0 ? (
+                    <TableRow><TableCell colSpan={5} align="center" sx={{ py: 10 }}>No invoices found</TableCell></TableRow>
                   ) : (
-                    invoices.map((invoice, index) => (
-                      <TableRow key={invoice._id}>
-                        <TableCell sx={{ fontFamily: 'monospace', fontWeight: 'bold' }}>{invoice.invoiceNumber}</TableCell>
-                        <TableCell>{invoice.customer.name}</TableCell>
-                        <TableCell align="right">{formatCurrency(invoice.total)}</TableCell>
+                    invoices.map((invoice) => (
+                      <TableRow key={invoice._id} hover sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
+                        <TableCell sx={{ fontFamily: 'monospace', fontWeight: 'bold', color: 'primary.main' }}>
+                          {invoice.invoiceNumber}
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2" fontWeight="600">{invoice.customer.name}</Typography>
+                          <Typography variant="caption" color="text.secondary">{invoice.customer.phone}</Typography>
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 'bold' }}>{formatCurrency(invoice.total)}</TableCell>
                         <TableCell align="center">
                           <Chip 
                             label={invoice.paymentStatus} 
+                            size="small"
+                            variant="soft"
                             color={invoice.paymentStatus === 'Paid' ? 'success' : 'warning'} 
-                            size="small" 
+                            sx={{ fontWeight: 'bold', borderRadius: 1.5 }}
                           />
                         </TableCell>
-                        <TableCell align="center">{formatDate(invoice.createdAt)}</TableCell>
                         <TableCell align="center">
-                          <IconButton component={Link} href={`/invoices/${invoice._id}`} size="small">
-                            <Visibility />
-                          </IconButton>
-                          <IconButton color="error" onClick={() => setDeleteConfirm(invoice)} size="small">
-                            <Delete />
-                          </IconButton>
+                          <Tooltip title="View Details">
+                            <IconButton component={Link} href={`/invoices/${invoice._id}`} color="primary">
+                              <Visibility fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Delete">
+                            <IconButton onClick={() => setDeleteConfirm(invoice)} color="error">
+                              <Delete fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
                         </TableCell>
                       </TableRow>
                     ))
@@ -356,27 +330,31 @@ export default function InvoiceHistoryPage() {
               </Table>
             </TableContainer>
           )}
-          {pagination.pages > 1 && (
-            <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
-              <Pagination
-                count={pagination.pages}
-                page={pagination.page}
-                onChange={(e, page) => setPagination({ ...pagination, page })}
-                color="primary"
-              />
-            </Box>
-          )}
-        </Card>
+          
+          <Box sx={{ p: 2, display: 'flex', justifyContent: 'center', borderTop: '1px solid #eee' }}>
+            <Pagination
+              count={pagination.pages}
+              page={pagination.page}
+              onChange={(e, p) => setPagination({ ...pagination, page: p })}
+              color="primary"
+              shape="rounded"
+            />
+          </Box>
+        </Paper>
 
-        {/* Modals */}
-        <Dialog open={!!deleteConfirm} onClose={() => setDeleteConfirm(null)}>
+        {/* Delete Confirmation */}
+        <Dialog open={!!deleteConfirm} onClose={() => setDeleteConfirm(null)} PaperProps={{ sx: { borderRadius: 3 } }}>
           <DialogTitle>Delete Invoice?</DialogTitle>
-          <DialogActions>
+          <DialogContent>This action is permanent and cannot be reversed.</DialogContent>
+          <DialogActions sx={{ p: 2.5 }}>
             <Button onClick={() => setDeleteConfirm(null)}>Cancel</Button>
-            <Button onClick={() => handleDelete(deleteConfirm._id)} variant="contained" color="error">Delete</Button>
+            <Button onClick={() => handleDelete(deleteConfirm._id)} variant="contained" color="error" sx={{ borderRadius: 2 }}>
+              Delete Invoice
+            </Button>
           </DialogActions>
         </Dialog>
 
+        {/* Barcode Scanner Modal */}
         <BarcodeScanner
           open={showScanner}
           onClose={() => setShowScanner(false)}
