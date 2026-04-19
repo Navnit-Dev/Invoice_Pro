@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -37,10 +37,6 @@ import {
   ListItem,
   ListItemText,
   ListItemButton,
-  CircularProgress,
-  Alert,
-  Snackbar,
-  Drawer,
 } from '@mui/material';
 import {
   Add,
@@ -53,7 +49,6 @@ import {
   Download,
   CalendarToday,
   Close,
-  ContentCopy,
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import MainLayout from '@/components/Layout/MainLayout';
@@ -74,7 +69,6 @@ export default function InvoiceHistoryPage() {
     pages: 0,
   });
   const [loading, setLoading] = useState(true);
-  const [barcodeLoading, setBarcodeLoading] = useState(false);
   const [filters, setFilters] = useState({
     search: searchParams.get('search') || '',
     status: searchParams.get('status') || '',
@@ -84,29 +78,13 @@ export default function InvoiceHistoryPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [showScanner, setShowScanner] = useState(false);
-  const [barcodeResult, setBarcodeResult] = useState(null);
-  const [searchTimeout, setSearchTimeout] = useState(null);
-
-  // Memoized filters for better performance
-  const debouncedFilters = useMemo(() => ({
-    ...filters,
-    search: filters.search.trim()
-  }), [filters]);
-
-  useEffect(() => {
-    if (searchTimeout) clearTimeout(searchTimeout);
-    setSearchTimeout(setTimeout(() => {
-      setPagination(prev => ({ ...prev, page: 1 }));
-    }, 500));
-  }, [debouncedFilters]);
 
   useEffect(() => {
     fetchInvoices();
-  }, [pagination.page]);
+  }, [pagination.page, filters]);
 
   const fetchInvoices = async () => {
     try {
-      setLoading(true);
       let url = `/api/invoices?page=${pagination.page}&limit=${pagination.limit}`;
       if (filters.search) url += `&search=${encodeURIComponent(filters.search)}`;
       if (filters.status) url += `&status=${filters.status}`;
@@ -116,85 +94,12 @@ export default function InvoiceHistoryPage() {
       const response = await fetch(url);
       if (!response.ok) throw new Error('Failed to fetch invoices');
       const data = await response.json();
-      setInvoices(data.invoices || []);
-      setPagination(data.pagination || { page: 1, limit: 10, total: 0, pages: 0 });
+      setInvoices(data.invoices);
+      setPagination(data.pagination);
     } catch (error) {
-      console.error('Fetch invoices error:', error);
       toast.error('Failed to load invoices');
     } finally {
       setLoading(false);
-    }
-  };
-
-  // FIXED & ENHANCED Barcode Search Functions
-  const handleBarcodeScan = useCallback(async (barcodeData) => {
-    if (!barcodeData || barcodeData.trim() === '') {
-      toast.error('No barcode data detected');
-      return;
-    }
-
-    const cleanBarcode = barcodeData.trim();
-    console.log('Barcode scanned:', cleanBarcode); // Debug log
-
-    try {
-      setBarcodeLoading(true);
-      setShowScanner(false);
-
-      // Try multiple barcode formats
-      const searchPromises = [
-        // Direct barcode lookup
-        fetch(`/api/invoices/scan?barcode=${encodeURIComponent(cleanBarcode)}`),
-        // Invoice number lookup (in case barcode contains invoice number)
-        fetch(`/api/invoices/search?query=${encodeURIComponent(cleanBarcode)}`),
-        // Partial match
-        fetch(`/api/invoices?search=${encodeURIComponent(cleanBarcode)}&limit=1`)
-      ];
-
-      const responses = await Promise.allSettled(searchPromises);
-      
-      let foundInvoice = null;
-
-      // Check first API (dedicated scan endpoint)
-      if (responses[0].status === 'fulfilled' && responses[0].value.ok) {
-        const data = await responses[0].value.json();
-        foundInvoice = data.invoice || data;
-      }
-
-      // If not found, check search endpoints
-      if (!foundInvoice) {
-        for (let i = 1; i < responses.length; i++) {
-          if (responses[i].status === 'fulfilled' && responses[i].value.ok) {
-            const data = await responses[i].value.json();
-            if (data.invoices && data.invoices.length > 0) {
-              foundInvoice = data.invoices[0];
-              break;
-            }
-          }
-        }
-      }
-
-      if (foundInvoice && foundInvoice._id) {
-        toast.success(`Found invoice: ${foundInvoice.invoiceNumber}`);
-        setBarcodeResult(foundInvoice);
-        router.push(`/invoices/${foundInvoice._id}`);
-      } else {
-        // Show search drawer with possible matches
-        setBarcodeResult({ searchTerm: cleanBarcode, noExactMatch: true });
-        toast.error('Invoice not found. Showing similar results...');
-      }
-
-    } catch (error) {
-      console.error('Barcode scan error:', error);
-      toast.error(`Invoice not found for barcode: ${cleanBarcode}`);
-    } finally {
-      setBarcodeLoading(false);
-    }
-  }, [router]);
-
-  // Manual barcode search
-  const handleManualBarcodeSearch = async () => {
-    if (filters.search.trim()) {
-      await handleBarcodeScan(filters.search.trim());
     }
   };
 
@@ -232,11 +137,21 @@ export default function InvoiceHistoryPage() {
       document.body.appendChild(link);
       link.click();
       link.remove();
-      window.URL.revokeObjectURL(downloadUrl);
 
       toast.success(`Exported as ${format.toUpperCase()}`);
     } catch (error) {
       toast.error(`Failed to export ${format}`);
+    }
+  };
+
+  const handleBarcodeScan = async (barcode) => {
+    try {
+      const response = await fetch(`/api/invoices/scan?barcode=${encodeURIComponent(barcode)}`);
+      if (!response.ok) throw new Error('Invoice not found');
+      const invoice = await response.json();
+      router.push(`/invoices/${invoice._id}`);
+    } catch (error) {
+      toast.error('Invoice not found for this barcode');
     }
   };
 
@@ -245,7 +160,7 @@ export default function InvoiceHistoryPage() {
       style: 'currency',
       currency: 'INR',
       maximumFractionDigits: 0,
-    }).format(amount || 0);
+    }).format(amount);
   };
 
   const formatDate = (date) => {
@@ -273,10 +188,8 @@ export default function InvoiceHistoryPage() {
               variant="outlined"
               startIcon={<QrCodeScanner />}
               onClick={() => setShowScanner(true)}
-              disabled={barcodeLoading}
             >
-              {barcodeLoading ? <CircularProgress size={20} /> : <QrCodeScanner />}
-              {barcodeLoading ? 'Scanning...' : 'Scan Barcode'}
+              Scan Barcode
             </Button>
             <Button
               variant="contained"
@@ -293,32 +206,22 @@ export default function InvoiceHistoryPage() {
         <Card sx={{ mb: 3 }}>
           <CardContent>
             <Grid container spacing={2} alignItems="center">
-              <Grid item xs={12} md={5}>
-                <Box sx={{ display: 'flex', gap: 1 }}>
-                  <TextField
-                    fullWidth
-                    placeholder="Search by invoice number, customer or barcode..."
-                    value={filters.search}
-                    onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-                    InputProps={{
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <Search color="action" />
-                        </InputAdornment>
-                      ),
-                    }}
-                  />
-                  <Button
-                    variant="contained"
-                    onClick={handleManualBarcodeSearch}
-                    disabled={!filters.search.trim() || barcodeLoading}
-                    startIcon={barcodeLoading ? <CircularProgress size={20} /> : <QrCodeScanner />}
-                  >
-                    Scan
-                  </Button>
-                </Box>
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  placeholder="Search by invoice number or customer..."
+                  value={filters.search}
+                  onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <Search color="action" />
+                      </InputAdornment>
+                    ),
+                  }}
+                />
               </Grid>
-              <Grid item xs={12} md={7}>
+              <Grid item xs={12} md={8}>
                 <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                   <Button
                     variant={showFilters ? 'contained' : 'outlined'}
@@ -396,43 +299,6 @@ export default function InvoiceHistoryPage() {
             )}
           </CardContent>
         </Card>
-
-        {/* Barcode Search Results Drawer */}
-        <Drawer
-          anchor="bottom"
-          open={!!barcodeResult}
-          onClose={() => setBarcodeResult(null)}
-        >
-          <Box sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>
-              Barcode Search Results
-            </Typography>
-            {barcodeResult?.noExactMatch && (
-              <Alert severity="info" sx={{ mb: 2 }}>
-                No exact match found for "{barcodeResult.searchTerm}". Try searching manually.
-              </Alert>
-            )}
-            <Button
-              fullWidth
-              variant="contained"
-              startIcon={<ContentCopy />}
-              onClick={() => {
-                navigator.clipboard.writeText(barcodeResult.searchTerm);
-                toast.success('Barcode copied!');
-              }}
-              sx={{ mb: 2 }}
-            >
-              Copy Barcode: {barcodeResult?.searchTerm}
-            </Button>
-            <Button
-              fullWidth
-              variant="outlined"
-              onClick={() => setBarcodeResult(null)}
-            >
-              Close
-            </Button>
-          </Box>
-        </Drawer>
 
         {/* Invoices List/Table */}
         <Card>
@@ -568,10 +434,10 @@ export default function InvoiceHistoryPage() {
                         </TableCell>
                         <TableCell>
                           <Typography variant="body2" fontWeight={500}>
-                            {invoice.customer?.name || 'N/A'}
+                            {invoice.customer.name}
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
-                            {invoice.customer?.phone || ''}
+                            {invoice.customer.phone}
                           </Typography>
                         </TableCell>
                         <TableCell align="right">
@@ -583,3 +449,88 @@ export default function InvoiceHistoryPage() {
                           <Chip
                             label={invoice.paymentStatus}
                             size="small"
+                            color={
+                              invoice.paymentStatus === 'Paid'
+                                ? 'success'
+                                : invoice.paymentStatus === 'Pending'
+                                ? 'warning'
+                                : 'default'
+                            }
+                          />
+                        </TableCell>
+                        <TableCell align="center">
+                          <Typography variant="body2" color="text.secondary">
+                            {formatDate(invoice.createdAt)}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="center">
+                          <Tooltip title="View">
+                            <IconButton
+                              size="small"
+                              component={Link}
+                              href={`/invoices/${invoice._id}`}
+                              sx={{ mr: 1 }}
+                            >
+                              <Visibility />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Delete">
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={() => setDeleteConfirm(invoice)}
+                            >
+                              <Delete />
+                            </IconButton>
+                          </Tooltip>
+                        </TableCell>
+                      </motion.tr>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+              {/* Pagination */}
+              {pagination.pages > 1 && (
+                <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
+                  <Pagination
+                    count={pagination.pages}
+                    page={pagination.page}
+                    onChange={(e, page) => setPagination({ ...pagination, page })}
+                    color="primary"
+                  />
+                </Box>
+              )}
+            </TableContainer>
+          )}
+        </Card>
+
+        {/* Delete Confirmation */}
+        <Dialog open={!!deleteConfirm} onClose={() => setDeleteConfirm(null)} maxWidth="xs">
+          <DialogTitle>Confirm Delete</DialogTitle>
+          <DialogContent>
+            <Typography>
+              Are you sure you want to delete invoice &quot;{deleteConfirm?.invoiceNumber}&quot;? This action cannot be undone.
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setDeleteConfirm(null)}>Cancel</Button>
+            <Button
+              onClick={() => handleDelete(deleteConfirm._id)}
+              variant="contained"
+              color="error"
+            >
+              Delete
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Barcode Scanner */}
+        <BarcodeScanner
+          open={showScanner}
+          onClose={() => setShowScanner(false)}
+          onScan={handleBarcodeScan}
+        />
+      </Box>
+    </MainLayout>
+  );
+}
