@@ -1,94 +1,42 @@
 'use client';
-
 import { useEffect, useRef } from 'react';
-import { Html5QrcodeScanner, Html5QrcodeScanType } from 'html5-qrcode';
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogTitle, 
-  Box, 
-  IconButton, 
-  Typography 
-} from '@mui/material';
+import { Html5QrcodeScanner } from 'html5-qrcode';
+import { Dialog, DialogContent, DialogTitle, Box, IconButton, Typography } from '@mui/material';
 import { Close } from '@mui/icons-material';
 
 export default function BarcodeScanner({ open, onClose, onScan }) {
   const scannerRef = useRef(null);
 
   useEffect(() => {
-    // Only initialize if the dialog is open
     if (open) {
-      const config = {
-        fps: 10,
-        qrbox: { width: 250, height: 150 }, // Optimized for 1D barcodes
-        aspectRatio: 1.0,
-        // Prioritize the back camera on mobile devices
-        supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA]
-      };
+      const scanner = new Html5QrcodeScanner("reader", { 
+        fps: 10, qrbox: { width: 250, height: 150 }, aspectRatio: 1.0 
+      }, false);
 
-      const scanner = new Html5QrcodeScanner("reader", config, false);
-
-      scanner.render(
-        (decodedText) => {
-          // Success: Pass data back, stop scanner, and close
-          onScan(decodedText);
-          if (scanner) {
-            scanner.clear().catch(err => console.error("Failed to clear scanner", err));
-          }
-          onClose();
-        },
-        (error) => {
-          // Silent catch for 'No barcode detected' frame errors
-        }
-      );
+      scanner.render((text) => {
+        onScan(text);
+        scanner.clear().catch(e => console.error(e));
+        onClose();
+      }, () => {});
 
       scannerRef.current = scanner;
     }
-
-    // Cleanup function when modal closes or component unmounts
     return () => {
       if (scannerRef.current) {
-        scannerRef.current.clear().catch(err => console.error("Cleanup error", err));
-        scannerRef.current = null;
+        scannerRef.current.clear().catch(e => console.error(e));
       }
     };
-  }, [open, onClose, onScan]);
+  }, [open]);
 
   return (
-    <Dialog 
-      open={open} 
-      onClose={onClose} 
-      fullWidth 
-      maxWidth="xs" 
-      PaperProps={{ sx: { borderRadius: 3 } }}
-    >
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs" PaperProps={{ sx: { borderRadius: 3 } }}>
       <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 800 }}>
-        Scan Barcode
-        <IconButton onClick={onClose} size="small">
-          <Close />
-        </IconButton>
+        Scan Barcode <IconButton onClick={onClose} size="small"><Close /></IconButton>
       </DialogTitle>
       <DialogContent>
-        <Box 
-          id="reader" 
-          sx={{ 
-            width: '100%', 
-            overflow: 'hidden', 
-            borderRadius: 2,
-            '& video': { borderRadius: '8px' },
-            '& #reader__dashboard_section_csr button': {
-              padding: '8px 16px',
-              borderRadius: '8px',
-              backgroundColor: '#1976d2',
-              color: 'white',
-              border: 'none',
-              marginTop: '10px',
-              cursor: 'pointer'
-            }
-          }} 
-        />
+        <Box id="reader" sx={{ width: '100%', borderRadius: 2, overflow: 'hidden' }} />
         <Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: 'block', textAlign: 'center' }}>
-          Point camera at the invoice barcode
+          Align barcode within the center frame
         </Typography>
       </DialogContent>
     </Dialog>
