@@ -11,40 +11,24 @@ import {
   Typography,
   IconButton,
   Alert,
-  CircularProgress,
 } from '@mui/material';
 import { Close } from '@mui/icons-material';
 import toast from 'react-hot-toast';
-import { useZxing } from 'react-qr-barcode-scanner';
+import Scanner from 'react-qr-barcode-scanner';
 
 export default function BarcodeScanner({ open, onClose, onScan }) {
   const [manualInput, setManualInput] = useState('');
   const [error, setError] = useState(null);
-  const [scanning, setScanning] = useState(true);
 
-  const { ref } = useZxing({
-    onDecodeResult(result) {
-      const barcode = result.getText();
+  const handleScan = (err, result) => {
+    if (result) {
+      const barcode = result.text;
       if (barcode) {
         onScan(barcode.trim());
         onClose();
       }
-    },
-    onError(error) {
-      // Ignore decode errors during scanning (no barcode in frame)
-      if (error.name !== 'NotFoundException') {
-        console.error('Barcode scan error:', error);
-      }
-    },
-    paused: !open || !scanning,
-    constraints: {
-      video: {
-        facingMode: 'environment',
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-      },
-    },
-  });
+    }
+  };
 
   const handleManualSubmit = () => {
     if (manualInput.trim()) {
@@ -56,10 +40,15 @@ export default function BarcodeScanner({ open, onClose, onScan }) {
   };
 
   const handleClose = () => {
-    setScanning(false);
     setManualInput('');
     setError(null);
     onClose();
+  };
+
+  const handleError = (err) => {
+    if (err.name !== 'NotFoundException') {
+      setError('Camera access denied or not available. Please use manual input.');
+    }
   };
 
   return (
@@ -87,21 +76,15 @@ export default function BarcodeScanner({ open, onClose, onScan }) {
                 background: '#000',
                 borderRadius: 2,
                 overflow: 'hidden',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
               }}
             >
-              <video
-                ref={ref}
-                autoPlay
-                playsInline
-                muted
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'cover',
-                }}
+              <Scanner
+                onUpdate={handleScan}
+                onError={handleError}
+                width="100%"
+                height="100%"
+                facingMode="environment"
+                delay={500}
               />
               {/* Scanner overlay */}
               <Box
@@ -116,6 +99,7 @@ export default function BarcodeScanner({ open, onClose, onScan }) {
                   borderColor: 'primary.main',
                   borderRadius: 1,
                   boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.5)',
+                  pointerEvents: 'none',
                   '&::before': {
                     content: '""',
                     position: 'absolute',
@@ -133,28 +117,22 @@ export default function BarcodeScanner({ open, onClose, onScan }) {
                   },
                 }}
               />
-              {/* Corner markers */}
-              <Box
+              <Typography
+                variant="caption"
                 sx={{
                   position: 'absolute',
-                  top: '50%',
+                  bottom: 10,
                   left: '50%',
-                  transform: 'translate(-50%, -50%)',
-                  width: 240,
-                  height: 120,
-                  pointerEvents: 'none',
-                  '&::after': {
-                    content: '"Position barcode here"',
-                    position: 'absolute',
-                    bottom: -30,
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    color: '#fff',
-                    fontSize: '12px',
-                    whiteSpace: 'nowrap',
-                  },
+                  transform: 'translateX(-50%)',
+                  color: '#fff',
+                  background: 'rgba(0,0,0,0.7)',
+                  px: 1,
+                  py: 0.5,
+                  borderRadius: 1,
                 }}
-              />
+              >
+                Position barcode here
+              </Typography>
             </Box>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, textAlign: 'center' }}>
               Point camera at barcode to scan automatically
