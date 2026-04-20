@@ -31,7 +31,7 @@
     "react-dom": "^18.3.1",
     "react-hook-form": "^7.51.5",
     "react-hot-toast": "^2.4.1",
-    "html5-qrcode": "^2.3.8",
+    "react-qr-barcode-scanner": "^2.0.0",
     "xlsx": "^0.18.5",
     "yup": "^1.4.0",
     "@hookform/resolvers": "^3.6.0",
